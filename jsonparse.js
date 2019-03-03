@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 /*global Buffer*/
 // Named constants with unique integer values
 var C = {};
@@ -51,7 +54,7 @@ var TAB =             "\t".charCodeAt(0);
 
 var STRING_BUFFER_SIZE = 64 * 1024;
 
-function Parser() {
+function Parser(emitChildObjects) {
   this.tState = START;
   this.value = undefined;
 
@@ -68,6 +71,10 @@ function Parser() {
   this.bytes_remaining = 0; // number of bytes remaining in multi byte utf8 char to read after split boundary
   this.bytes_in_sequence = 0; // bytes in multi byte utf8 char to read
   this.temp_buffs = { "2": new Buffer(2), "3": new Buffer(3), "4": new Buffer(4) }; // for rebuilding chars split before boundary is reached
+
+  this.emitChildObjects = emitChildObjects;
+  this.count = 0;
+  this.dirCreated = false;
 
   // Stream offset
   this.offset = -1;
@@ -326,6 +333,29 @@ proto.push = function () {
 proto.pop = function () {
   var value = this.value;
   var parent = this.stack.pop();
+
+  // Create the Directory that will contain the JSON destructured into different files
+  if (!this.dirCreated && this.emitChildObjects && this.emitChildObjects.dir) {
+    try {
+      this.dirCreated = true;
+      fs.mkdirSync(this.emitChildObjects.dir);
+    } catch (err) {
+      console.error(':::::Could not make the directory::::', err);
+    }
+  }
+
+  // Emits child objects to a file with unique ID
+  if (this.emitChildObjects && parent.value && typeof parent.value === 'object') {
+    const uniqueIdentifier = 'uKamesh_ref$' + this.count++;
+    parent.value[parent.key] = uniqueIdentifier;
+    fs.writeFileSync(path.join(this.emitChildObjects.dir, uniqueIdentifier), JSON.stringify(value));
+  }
+
+  // Emits the Parent Object that will be the starting point to regenerate the JSON
+  if (this.emitChildObjects && this.stack.length === 0) {
+    fs.writeFileSync(path.join(this.emitChildObjects.dir, 'uKamesh_ref$Parent'), JSON.stringify(value));
+  }
+
   this.value = parent.value;
   this.key = parent.key;
   this.mode = parent.mode;
